@@ -1,0 +1,109 @@
+#include <Wire.h>
+#include <Adafruit_MCP4725.h>
+#include <Servo.h>
+
+// Define components
+Adafruit_MCP4725 dac;
+Servo steeringServo;
+
+// Pins
+#define BRAKE_PIN 7
+#define REVERSE_PIN 4
+#define STEERING_SERVO_PIN 9
+
+// Communication
+#define STX 0x02
+#define ETX 0x2A
+#define PACKET_SIZE 7
+
+enum RobotState {
+  IDLE,
+  FORWARD,
+  BACKWARD
+};
+
+RobotState currentState = IDLE;
+uint16_t throttleValue = 0;
+
+// Setup function
+void setup() {
+  Serial.begin(9600);
+  pinMode(BRAKE_PIN, OUTPUT);
+  pinMode(REVERSE_PIN, OUTPUT);
+
+  // Initialize servo
+  steeringServo.attach(STEERING_SERVO_PIN);
+  steeringServo.write(90); // Center
+
+  // Initialize DAC
+  if (!dac.begin(0x60)) {
+    Serial.println("DAC initialization failed!");
+    while (1);
+  }
+  Serial.println("Arduino ready.");
+}
+
+// Main loop
+void loop() {
+  handleSerialInput();
+  updateRobot();
+}
+
+// Handle serial input
+void handleSerialInput() {
+  static uint8_t buffer[PACKET_SIZE];
+  static uint8_t index = 0;
+
+  while (Serial.available()) {
+    uint8_t byte = Serial.read();
+    if (byte == STX) {
+      index = 0;
+      buffer[index++] = byte;
+    } else if (index > 0 && index < PACKET_SIZE) {
+      buffer[index++] = byte;
+      if (index == PACKET_SIZE && buffer[PACKET_SIZE - 1] == ETX) {
+        processCommand(buffer);
+        index = 0;
+      }
+    }
+  }
+}
+
+// Process a received command
+void processCommand(uint8_t *packet) {
+  uint8_t state = packet[2];
+  uint8_t throttle = packet[3];
+  uint8_t steering = packet[4];
+
+  // Update state
+  switch (state) {
+    case 'F': currentState = FORWARD; break;
+    case 'B': currentState = BACKWARD; break;
+    case 'I': currentState = IDLE; break;
+  }
+
+  // Update throttle and steering
+  throttleValue = map(throttle, 0, 255, 0, 4095);
+  steeringServo.write(map(steering, 0, 255, 0, 180));
+}
+
+// Update robot state
+void updateRobot() {
+  switch (currentState) {
+    case IDLE:
+      digitalWrite(BRAKE_PIN, LOW);
+      digitalWrite(REVERSE_PIN, LOW);
+      dac.setVoltage(0, false);
+      break;
+    case FORWARD:
+      digitalWrite(BRAKE_PIN, HIGH);
+      digitalWrite(REVERSE_PIN, LOW);
+      dac.setVoltage(throttleValue, false);
+      break;
+    case BACKWARD:
+      digitalWrite(BRAKE_PIN, HIGH);
+      digitalWrite(REVERSE_PIN, HIGH);
+      dac.setVoltage(throttleValue, false);
+      break;
+  }
+}
