@@ -1,0 +1,47 @@
+import serial
+import pygame
+import time
+# Code By Abdullah Jabri 
+
+arduino = serial.Serial('/dev/ttyACM0', 9600)
+time.sleep(2)  # Allow Arduino to reset
+
+
+pygame.init()
+joystick = pygame.joystick.Joystick(0)
+joystick.init()
+
+
+STX = 0x02
+ETX = 0x2A
+
+def send_command(state, throttle, steering):
+    length = 3  # State, throttle, steering
+    checksum = (length + ord(state) + throttle + steering) & 0xFF
+    packet = [STX, length, ord(state), throttle, steering, checksum, ETX]
+    arduino.write(bytearray(packet))
+    print(f"Sent: {packet}")
+
+
+try:
+    while True:
+        pygame.event.pump()
+
+       
+        throttle = int((joystick.get_axis(5) + 1) / 2 * 255)  # Right trigger
+        steering = int((joystick.get_axis(0) + 1) / 2 * 255)  # Left stick
+
+        if joystick.get_button(0):  # Button A
+            state = 'F'
+        elif joystick.get_button(1):  # Button B
+            state = 'B'
+        else:
+            state = 'I'
+
+        send_command(state, throttle, steering)
+        time.sleep(0.1)
+# Code By Abdullah Jabri 
+except KeyboardInterrupt:
+    print("Exiting...")
+    pygame.quit()
+    arduino.close()
